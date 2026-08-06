@@ -27,6 +27,15 @@ resolved to the function, `act.transform.bin_average` silently becomes the
 the top of `__init__.py` (`from .bin_average import bin_average`) instead of
 routing it through `lazy.attach`'s `submod_attrs`. See `act/transform/__init__.py`.
 
+Doing so has a documentation consequence: `lazy.attach` derives its `__dir__` only
+from the names it was asked to load lazily, so eagerly imported names drop out of
+`dir()`. `sphinx.ext.autosummary` builds each module's API page from `dir()`, so
+such a name is silently omitted from the generated docs while still importing and
+working normally — nothing fails, the page is just missing entries. Any subpackage
+that overrides `__all__` after `lazy.attach` should define `__dir__` to match it;
+`act/transform/__init__.py` does, and `tests/transform/test_api.py::TestPublicSurface`
+guards it.
+
 ## `read_arm_netcdf` leaves CF bounds variables as cftime objects
 
 `act.io.arm.read_arm_netcdf` decodes with `use_cftime=True` and then converts only

@@ -28,7 +28,7 @@ from .bin_average import bin_average  # noqa
 from .interpolate import interpolate  # noqa
 from .subsample import subsample  # noqa
 
-__getattr__, __dir__, _lazy_all = lazy.attach(
+__getattr__, _lazy_dir, _lazy_all = lazy.attach(
     __name__,
     submodules=['constants', 'driver'],
     submod_attrs={
@@ -51,3 +51,16 @@ __getattr__, __dir__, _lazy_all = lazy.attach(
     },
 )
 __all__ = sorted(set(_lazy_all) | {'bin_average', 'interpolate', 'subsample'})
+
+
+def __dir__():
+    """Return the full public surface, including the eagerly-imported transforms.
+
+    ``lazy.attach`` builds its ``__dir__`` from the names it was asked to load
+    lazily, so the three functions imported eagerly above would be absent. That
+    matters beyond interactive tab-completion: ``sphinx.ext.autosummary`` falls
+    back to ``dir()`` when generating a module's API page, so ``bin_average``,
+    ``interpolate``, and ``subsample`` were silently omitted from the generated
+    documentation. Report ``__all__`` instead, which already accounts for them.
+    """
+    return list(__all__)

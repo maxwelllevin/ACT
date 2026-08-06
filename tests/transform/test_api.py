@@ -439,3 +439,48 @@ class TestDatetimeCoordinatesFromReader:
         assert np.issubdtype(result['time'].dtype, np.datetime64)
         assert qc.shape == result.shape
         ds.close()
+
+
+class TestPublicSurface:
+    """The public surface must be discoverable, not merely reachable.
+
+    sphinx.ext.autosummary builds a module's API page from dir(), so a name
+    missing from dir() is silently omitted from the generated documentation even
+    though getattr() finds it.
+    """
+
+    def test_dir_matches_all(self):
+        assert sorted(dir(act.transform)) == sorted(act.transform.__all__)
+
+    @pytest.mark.parametrize(
+        'name',
+        [
+            'bin_average',
+            'interpolate',
+            'subsample',
+            'make_coord',
+            'transform_dataset',
+            'Transform',
+        ],
+    )
+    def test_public_name_is_discoverable(self, name):
+        # The three transforms are imported eagerly rather than through
+        # lazy.attach, so they are the ones at risk of dropping out of dir().
+        assert name in dir(act.transform)
+        assert name in act.transform.__all__
+        assert getattr(act.transform, name) is not None
+
+    def test_qc_bit_constants_exported(self):
+        # Every individual flag bit is re-exported at package level. The
+        # QC_ALL_FLAGS / QC_FLAG_MEANINGS / QC_FLAG_ASSESSMENTS lookup tables are
+        # deliberately not, and are reached through act.transform.constants.
+        for bit in act.transform.constants.QC_ALL_FLAGS:
+            names = [
+                name
+                for name, value in vars(act.transform.constants).items()
+                if name.startswith('QC_') and value is bit
+            ]
+            assert names, f'no constant found for bit {bit}'
+            for name in names:
+                assert name in act.transform.__all__, name
+                assert getattr(act.transform, name) == bit

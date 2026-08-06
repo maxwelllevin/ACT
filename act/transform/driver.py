@@ -29,6 +29,67 @@ def _infer_t_range(index):
     return float(np.median(np.abs(np.diff(index))))
 
 
+def _is_datetime_like_array(arr):
+    """Return True if ``arr`` holds datetime64, timedelta64, or date-like objects."""
+    if arr.dtype.kind in 'Mm':
+        return True
+    if arr.dtype == object and arr.size:
+        val = arr.reshape(-1)[0]
+        return all(hasattr(val, a) for a in ('year', 'month', 'day'))
+    return False
+
+
+def _to_numeric(values):
+    """Convert coordinate-like values to float64 for the numeric kernels.
+
+    The kernels do plain arithmetic on their coordinate arguments, so
+    datetime-like coordinates have to be reduced to numbers first.
+    ``datetime64``/``timedelta64`` arrays and object arrays of date-like
+    values (e.g. the :class:`cftime.DatetimeGregorian` objects that
+    :func:`act.io.arm.read_arm_netcdf` produces for CF ``bounds`` variables)
+    are all normalized to nanoseconds, so values originating from different
+    units remain mutually comparable. Numeric input is passed through
+    unchanged apart from the float64 cast.
+
+    Parameters
+    ----------
+    values : array_like
+        Coordinate, bounds, or target values of any supported dtype.
+
+    Returns
+    -------
+    numpy.ndarray
+        float64 array; nanoseconds since the epoch for datetime-like input.
+
+    """
+    arr = np.asarray(values)
+
+    if arr.dtype.kind == 'M':
+        return arr.astype('datetime64[ns]').astype(np.float64)
+    if arr.dtype.kind == 'm':
+        return arr.astype('timedelta64[ns]').astype(np.float64)
+
+    if _is_datetime_like_array(arr):
+        # cftime / datetime.datetime objects: let numpy parse them via
+        # datetime64. Fall through to the plain float cast if it can't.
+        try:
+            return arr.astype('datetime64[ns]').astype(np.float64)
+        except (TypeError, ValueError):
+            pass
+
+    return arr.astype(np.float64)
+
+
+def _to_numeric_scalar(value):
+    """Convert a scalar distance like ``t_range`` to float64 nanoseconds if it is a duration."""
+    if value is None:
+        return None
+    arr = np.asarray(value)
+    if arr.dtype.kind == 'm' or isinstance(value, pd.Timedelta):
+        return float(arr.astype('timedelta64[ns]').astype(np.float64))
+    return float(value)
+
+
 def transform_1d(
     data,
     qc_data,
@@ -89,8 +150,10 @@ def transform_1d(
         Coverage fraction below which output is flagged ``QC_BAD_GOODFRAC``.
     goodfrac_ind_min : float
         Coverage fraction below which output is flagged ``QC_INDETERMINATE_GOODFRAC``.
-    t_range : float, optional
-        Max distance for interpolate/subsample. Defaults to median input spacing.
+    t_range : float or numpy.timedelta64, optional
+        Max distance for interpolate/subsample; a timedelta is converted to
+        nanoseconds to match a datetime coordinate. Defaults to median input
+        spacing.
 
     Returns
     -------
@@ -104,6 +167,13 @@ def transform_1d(
     data = np.asarray(data, dtype=np.float64)
     ni = len(input_coord)
     nt = len(output_coord)
+
+    # The kernels do arithmetic directly on the coordinate arrays, so reduce
+    # datetime-like coordinates to numbers up front for every transform.
+    # bin_average used to get this only incidentally, via _get_bounds().
+    input_coord = _to_numeric(input_coord)
+    output_coord = _to_numeric(output_coord)
+    t_range = _to_numeric_scalar(t_range)
 
     if data.shape[axis] != ni:
         raise ValueError(
@@ -238,10 +308,10 @@ def _get_bounds(coord, bounds):
 
     """
     if bounds is not None:
-        b = np.asarray(bounds, dtype=np.float64)
+        b = _to_numeric(bounds)
         return b[:, 0], b[:, 1]
 
-    coord = np.asarray(coord, dtype=np.float64)
+    coord = _to_numeric(coord)
     n = len(coord)
     starts = np.empty(n)
     ends = np.empty(n)
@@ -328,7 +398,12 @@ def apply_transform(
         output_coord = target.values
         target_da = target
     else:
-        output_coord = np.asarray(target, dtype=float)
+        output_coord = np.asarray(target)
+        # Keep datetime-like targets as-is so the output coordinate stays a
+        # datetime; transform_1d reduces it to numbers for the kernels. Numeric
+        # targets keep their historical float64 cast.
+        if not _is_datetime_like_array(output_coord):
+            output_coord = output_coord.astype(float)
         target_da = xr.DataArray(output_coord, dims=[dim], name=dim)
 
     if dim in data.coords:
@@ -554,7 +629,18 @@ def transform_dataset(
     per_var_transform = per_var_transform or {}
     per_var_kwargs = per_var_kwargs or {}
 
+    # CF bounds variables describe the coordinate cells rather than measured
+    # data, so they are consumed as bounds below and never transformed. They
+    # are also not necessarily numeric -- read_arm_netcdf leaves them as
+    # cftime objects -- so feeding them to a kernel would fail outright.
+    bounds_vars = {
+        v.attrs['bounds'] for v in ds.variables.values() if 'bounds' in getattr(v, 'attrs', {})
+    }
+
     for name, da in ds.data_vars.items():
+        if name in bounds_vars:
+            continue
+
         if dim not in da.dims:
             result_vars[name] = da
             continue

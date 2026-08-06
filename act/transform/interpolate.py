@@ -273,8 +273,9 @@ def interpolate(data, target, dim, qc=None, qc_mask=0, t_range=None):
         Optional integer QC DataArray with same shape as ``data``.
     qc_mask : int
         Bitmask of QC bits that indicate bad data.
-    t_range : float, optional
+    t_range : float or numpy.timedelta64, optional
         Maximum distance from a target point to an input point for interpolation.
+        May be given as a timedelta when ``dim`` is a datetime coordinate.
         Defaults to the median spacing of input coordinate values.
 
     Returns

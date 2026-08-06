@@ -27,6 +27,26 @@ resolved to the function, `act.transform.bin_average` silently becomes the
 the top of `__init__.py` (`from .bin_average import bin_average`) instead of
 routing it through `lazy.attach`'s `submod_attrs`. See `act/transform/__init__.py`.
 
+## `read_arm_netcdf` leaves CF bounds variables as cftime objects
+
+`act.io.arm.read_arm_netcdf` decodes with `use_cftime=True` and then converts only
+`time`/`time_offset` back to `datetime64` (see `act/io/arm.py`). Any other time-like
+variable — notably a CF `time_bounds` — stays a dtype-`object` array of
+`cftime.DatetimeGregorian`. So `ds['time']` is `datetime64[ns]` while
+`ds['time_bounds']` is not, and `np.asarray(bounds, dtype=float)` on it raises
+`TypeError`. Reading the same file with plain `xr.open_dataset` yields `datetime64`
+bounds and hides the problem, so exercise any bounds-consuming code through ACT's
+own reader. `act/transform/driver.py:_to_numeric` is the normalization helper.
+
+## Pre-existing `pytest tests/` failures
+
+Roughly 7 failures are unrelated to any local change: network-dependent
+`tests/discovery/` tests (403 through a proxy) plus upstream API drift in
+`test_ameriflux`, `test_bsrn_limits_test`, `test_sonde`, and `test_convert_units`.
+Confirm a failure reproduces on a clean checkout before investigating it. Some
+`tests/discovery/` and `tests/retrievals/` tests also write download artifacts
+(`data/`, `Boulder_CO_surfrad/`) into the repo root; delete them before committing.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

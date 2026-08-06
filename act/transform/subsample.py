@@ -231,11 +231,50 @@ def subsample(data, target, dim, qc=None, qc_mask=0, t_range=None):
         Integer QC DataArray with same shape as ``result``, with CF
         ``flag_masks``/``flag_meanings``/``flag_assessments`` attributes set.
 
+    See Also
+    --------
+    act.transform.bin_average : Weighted average over output bins.
+    act.transform.interpolate : Linear interpolation onto the target coordinate.
+    act.transform.transform_dataset : Apply a transform to every variable in a Dataset.
+
     Examples
     --------
-        .. code-block:: python
+    Select the nearest sample to each target point. Because subsampling returns
+    a value that was actually observed rather than a computed one, it is the
+    right choice for codes, flags, states, and other categorical quantities that
+    averaging or interpolating would render meaningless.
 
-            result, result_qc = act.transform.subsample(ds['temp'], target_time, dim='time')
+    .. code-block:: python
+
+        import act
+
+        ds = act.io.arm.read_arm_netcdf(filename, cleanup_qc=True)
+        target = act.transform.make_coord('2023-03-01', '2023-03-02', '30min')
+
+        result, result_qc = act.transform.subsample(
+            ds['pwd_pw_code_inst'], target, dim='time'
+        )
+
+    Honor input QC and cap how far the search may reach. When the nearest sample
+    is excluded by ``qc_mask`` a farther one is used instead, and the output is
+    flagged ``QC_NOT_USING_CLOSEST`` so the substitution is visible. When the
+    coordinate is a datetime, ``t_range`` may be a timedelta; it defaults to the
+    median input spacing.
+
+    .. code-block:: python
+
+        import numpy as np
+        from act.transform.constants import QC_NOT_USING_CLOSEST
+
+        result, result_qc = act.transform.subsample(
+            ds['pwd_pw_code_inst'],
+            target,
+            dim='time',
+            qc=ds['qc_pwd_pw_code_inst'],
+            qc_mask=4,
+            t_range=np.timedelta64(5, 'm'),
+        )
+        substituted = (result_qc.values & QC_NOT_USING_CLOSEST).astype(bool)
 
     """
     from act.transform.driver import apply_transform

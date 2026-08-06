@@ -520,9 +520,21 @@ def make_coord(start, stop, freq, name='time'):
 
     Examples
     --------
-        .. code-block:: python
+    A datetime coordinate, from datetime-like endpoints and a pandas frequency
+    string. The endpoints may be strings, ``numpy.datetime64``, or
+    ``pandas.Timestamp``.
 
-            target_time = act.transform.make_coord('2023-01-01', '2023-01-02', '30min')
+    .. code-block:: python
+
+        target_time = act.transform.make_coord('2023-01-01', '2023-01-02', '30min')
+
+    A numeric coordinate, from numeric endpoints and a numeric step. Note that
+    the numeric form excludes ``stop``, following ``numpy.arange``, while the
+    datetime form includes it, following ``pandas.date_range``.
+
+    .. code-block:: python
+
+        target_height = act.transform.make_coord(0.0, 5000.0, 250.0, name='height')
 
     """
 
@@ -594,12 +606,58 @@ def transform_dataset(
         New dataset with transformed variables on the target coordinate.
         Each transformed variable has a companion QC variable included.
 
+    See Also
+    --------
+    act.transform.bin_average : Bin-average a single DataArray.
+    act.transform.interpolate : Interpolate a single DataArray.
+    act.transform.subsample : Subsample a single DataArray.
+
     Examples
     --------
-        .. code-block:: python
+    Bin-average every time-dependent variable onto a 30-minute time base. Each
+    variable's ``qc_<var>`` companion is found and honored automatically, and for
+    ``bin_average`` the coordinate's CF ``bounds`` variable is picked up as
+    ``input_bounds``. The bounds variable itself is not transformed.
 
-            new_ds = act.transform.transform_dataset(ds, target=target_time, dim='time',
-                                                       transform='bin_average')
+    .. code-block:: python
+
+        import act
+
+        ds = act.io.arm.read_arm_netcdf(filename, cleanup_qc=True)
+        target = act.transform.make_coord('2023-03-01', '2023-03-02', '30min')
+
+        new_ds = act.transform.transform_dataset(
+            ds, target=target, dim='time', transform='bin_average', qc_mask=4
+        )
+
+    One transform is rarely right for every variable in a file, which is the
+    usual reason to use this instead of looping yourself. ``per_var_transform``
+    overrides the transform for named variables and ``per_var_kwargs`` overrides
+    their keyword arguments -- here a categorical present-weather code is
+    subsampled rather than averaged, since averaging two codes yields a value
+    that corresponds to no weather condition.
+
+    .. code-block:: python
+
+        new_ds = act.transform.transform_dataset(
+            ds,
+            target=target,
+            dim='time',
+            transform='bin_average',  # default for everything else
+            qc_mask=4,
+            per_var_transform={'pwd_pw_code_inst': 'subsample'},
+            per_var_kwargs={'wspd_arith_mean': {'std_ind_max': 0.8}},
+        )
+
+    Transform onto another Dataset's coordinate instead of an explicit target,
+    which is convenient for putting two datastreams on a common time base.
+    ``target`` and ``target_ds`` are mutually exclusive.
+
+    .. code-block:: python
+
+        new_ds = act.transform.transform_dataset(
+            ds, target_ds=other_ds, dim='time', transform='interpolate'
+        )
 
     """
     if dim is None:
@@ -698,9 +756,43 @@ class Transform:
 
     Examples
     --------
-        .. code-block:: python
+    The accessor takes variable *names* and looks them up in the Dataset, where
+    the module-level functions take :class:`xarray.DataArray` objects. Note that
+    the QC argument changes name accordingly: ``qc_var_name`` here versus ``qc``
+    on the functions.
 
-            result, result_qc = ds.transform.bin_average('temp', target_time, dim='time')
+    .. code-block:: python
+
+        import act
+
+        ds = act.io.arm.read_arm_netcdf(filename, cleanup_qc=True)
+        target = act.transform.make_coord('2023-03-01', '2023-03-02', '30min')
+
+        result, result_qc = ds.transform.bin_average(
+            'temp_mean', target, dim='time', qc_var_name='qc_temp_mean', qc_mask=4
+        )
+
+    These two calls are equivalent; the accessor forwards straight to the
+    function, so neither form is more capable than the other.
+
+    .. code-block:: python
+
+        result, result_qc = ds.transform.interpolate('temp_mean', target, dim='time')
+
+        result, result_qc = act.transform.interpolate(ds['temp_mean'], target, dim='time')
+
+    Any extra keyword arguments are passed through to the underlying function,
+    and ``transform_dataset`` takes every argument except ``ds`` itself.
+
+    .. code-block:: python
+
+        result, result_qc = ds.transform.bin_average(
+            'wspd_arith_mean', target, dim='time', std_ind_max=0.8
+        )
+
+        new_ds = ds.transform.transform_dataset(
+            target=target, dim='time', transform='bin_average', qc_mask=4
+        )
 
     """
 

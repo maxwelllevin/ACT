@@ -286,11 +286,48 @@ def interpolate(data, target, dim, qc=None, qc_mask=0, t_range=None):
         Integer QC DataArray with same shape as ``result``, with CF
         ``flag_masks``/``flag_meanings``/``flag_assessments`` attributes set.
 
+    See Also
+    --------
+    act.transform.bin_average : Weighted average over output bins.
+    act.transform.subsample : Nearest-neighbor selection onto the target coordinate.
+    act.transform.transform_dataset : Apply a transform to every variable in a Dataset.
+
     Examples
     --------
-        .. code-block:: python
+    Interpolate onto a finer time base. Interpolation reports an instant rather
+    than summarizing an interval, so prefer it over ``bin_average`` when moving
+    to a finer grid or onto offset timestamps.
 
-            result, result_qc = act.transform.interpolate(ds['temp'], target_time, dim='time')
+    .. code-block:: python
+
+        import act
+
+        ds = act.io.arm.read_arm_netcdf(filename, cleanup_qc=True)
+        target = act.transform.make_coord('2023-03-01', '2023-03-02', '30s')
+
+        result, result_qc = act.transform.interpolate(ds['temp_mean'], target, dim='time')
+
+    Honor input QC and limit how far an output point may reach for an input
+    sample. When the coordinate is a datetime, ``t_range`` may be a timedelta;
+    it defaults to the median input spacing. Output points with no usable
+    sample within range are flagged ``QC_OUTSIDE_RANGE``.
+
+    .. code-block:: python
+
+        import numpy as np
+        from act.transform.constants import QC_INTERPOLATE, QC_OUTSIDE_RANGE
+
+        result, result_qc = act.transform.interpolate(
+            ds['temp_mean'],
+            target,
+            dim='time',
+            qc=ds['qc_temp_mean'],
+            qc_mask=4,
+            t_range=np.timedelta64(5, 'm'),
+        )
+
+        # Points where a bad or missing neighbor had to be skipped over.
+        stretched = (result_qc.values & QC_INTERPOLATE).astype(bool)
 
     """
     from act.transform.driver import apply_transform

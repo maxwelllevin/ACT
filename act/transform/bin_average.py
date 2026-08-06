@@ -337,11 +337,67 @@ def bin_average(
         Integer QC DataArray with same shape as ``result``, with CF
         ``flag_masks``/``flag_meanings``/``flag_assessments`` attributes set.
 
+    See Also
+    --------
+    act.transform.interpolate : Linear interpolation onto the target coordinate.
+    act.transform.subsample : Nearest-neighbor selection onto the target coordinate.
+    act.transform.transform_dataset : Apply a transform to every variable in a Dataset.
+
     Examples
     --------
-        .. code-block:: python
+    Average 1-minute data onto a 30-minute time base. ``make_coord`` builds the
+    target coordinate, and the returned QC variable describes each output bin.
 
-            result, result_qc = act.transform.bin_average(ds['temp'], target_time, dim='time')
+    .. code-block:: python
+
+        import act
+
+        ds = act.io.arm.read_arm_netcdf(filename, cleanup_qc=True)
+        target = act.transform.make_coord('2023-03-01', '2023-03-02', '30min')
+
+        result, result_qc = act.transform.bin_average(ds['temp_mean'], target, dim='time')
+
+    Honor the input QC variable so flagged samples are excluded from the average.
+    ``qc_mask`` is a bitmask, not a bit number, so bit 3 is ``4``. Output bins
+    that lost input are flagged ``QC_SOME_BAD_INPUTS``.
+
+    .. code-block:: python
+
+        from act.transform.constants import QC_SOME_BAD_INPUTS
+
+        result, result_qc = act.transform.bin_average(
+            ds['temp_mean'], target, dim='time', qc=ds['qc_temp_mean'], qc_mask=4
+        )
+        affected = (result_qc.values & QC_SOME_BAD_INPUTS).astype(bool)
+
+    Use the bin bounds declared by the file rather than bounds inferred from the
+    coordinate midpoints, so samples straddling an output bin edge are split
+    across both bins in proportion to their overlap.
+
+    .. code-block:: python
+
+        result, result_qc = act.transform.bin_average(
+            ds['temp_mean'], target, dim='time', input_bounds=ds['time_bounds'].values
+        )
+
+    Flag output bins whose input was too variable, or too sparse, to be
+    represented by a single mean. Both threshold families default to a no-op --
+    the ``std_*`` thresholds to infinity and the ``goodfrac_*`` thresholds to
+    zero -- so their bits only appear once a threshold is set.
+
+    .. code-block:: python
+
+        from act.transform.constants import QC_BAD_STD, QC_INDETERMINATE_STD
+
+        result, result_qc = act.transform.bin_average(
+            ds['wspd_arith_mean'],
+            target,
+            dim='time',
+            std_ind_max=0.8,  # within-bin stdev above this -> QC_INDETERMINATE_STD
+            std_bad_max=1.5,  # ... and above this -> QC_BAD_STD
+            goodfrac_ind_min=0.99,  # good coverage below this -> QC_INDETERMINATE_GOODFRAC
+        )
+        gusty = (result_qc.values & QC_INDETERMINATE_STD).astype(bool)
 
     """
     from act.transform.driver import apply_transform

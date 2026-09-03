@@ -185,58 +185,58 @@ The full set of bits, and which transforms can set them:
      - Assessment
      - Meaning
    * - ``QC_BAD``
-     - 2
+     - 1
      - Bad
      - No value could be produced. Set alongside ``QC_OUTSIDE_RANGE`` or
        ``QC_ALL_BAD_INPUTS``; it is *not* set by the threshold bits below.
    * - ``QC_INDETERMINATE``
-     - 4
+     - 2
      - Indeterminate
      - An input sample carried a QC bit that was *not* in ``qc_mask``, so it was used
        but was not clean.
    * - ``QC_INTERPOLATE``
-     - 8
+     - 4
      - Indeterminate
      - ``interpolate`` had to skip past a bad or missing neighbor to find a usable one.
    * - ``QC_EXTRAPOLATE``
-     - 16
+     - 8
      - Indeterminate
      - The output point lies beyond the input samples used.
    * - ``QC_NOT_USING_CLOSEST``
-     - 32
+     - 16
      - Indeterminate
      - ``subsample`` rejected the nearest sample (bad or missing) and took a farther one.
    * - ``QC_SOME_BAD_INPUTS``
-     - 64
+     - 32
      - Indeterminate
      - ``bin_average`` excluded at least one sample from this bin. If *every* sample was
        excluded, ``QC_ALL_BAD_INPUTS`` is set as well, so check that bit first.
    * - ``QC_ZERO_WEIGHT``
-     - 128
-     - Bad
+     - 64
+     - Indeterminate
      - Total weight for this output point was zero.
    * - ``QC_OUTSIDE_RANGE``
-     - 256
+     - 128
      - Bad
      - The output point falls outside the input coordinate range, or beyond ``t_range``.
    * - ``QC_ALL_BAD_INPUTS``
-     - 512
+     - 256
      - Bad
      - Every candidate input sample was bad or missing; no value could be produced.
    * - ``QC_BAD_STD``
-     - 1024
+     - 512
      - Bad
      - Within-bin standard deviation exceeded ``std_bad_max``.
    * - ``QC_INDETERMINATE_STD``
-     - 2048
+     - 1024
      - Indeterminate
      - Within-bin standard deviation exceeded ``std_ind_max``.
    * - ``QC_BAD_GOODFRAC``
-     - 4096
+     - 2048
      - Bad
      - Good coverage fraction fell below ``goodfrac_bad_min``.
    * - ``QC_INDETERMINATE_GOODFRAC``
-     - 8192
+     - 4096
      - Indeterminate
      - Good coverage fraction fell below ``goodfrac_ind_min``.
 
@@ -248,11 +248,11 @@ is therefore not discarded -- it is reported.
 Composing with ``ds.qcfilter``
 ------------------------------
 
-Every output QC variable is stamped with CF ``flag_masks``, ``flag_meanings``,
-``flag_assessments``, and ``standard_name='quality_flag'`` by
-:func:`act.transform.constants.add_cf_qc_attrs`, following the same convention as
-:meth:`act.qc.qcfilter.QCFilter.create_qc_variable`. That means ACT's existing QC
-machinery works on transform output without any translation step:
+Every output QC variable is stamped with ARM-style ``flag_masks``,
+``flag_meanings``, ``flag_assessments``, ``flag_comments``, and
+``standard_name='quality_flag'`` by
+:func:`act.transform.constants.add_arm_qc_attrs`. That means ARM metadata and
+ACT's existing QC machinery work on transform output without any translation step:
 
 .. code-block:: python
 

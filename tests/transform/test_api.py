@@ -33,16 +33,21 @@ class TestInterpolate:
         assert result.values[1] == pytest.approx(2.5)
         assert result.name == 'temp'
 
-    def test_returns_qc_dataarray_with_cf_attrs(self):
+    def test_returns_arm_qc_metadata(self):
         da = _da([0.0, 1.0, 2.0])
         target = np.array([0.5, 1.5])
         result, qc = act.transform.interpolate(da, target, dim='time')
         assert isinstance(qc, xr.DataArray)
         assert qc.shape == result.shape
         assert qc.attrs.get('standard_name') == 'quality_flag'
-        assert len(qc.attrs.get('flag_masks')) > 0
-        assert len(qc.attrs.get('flag_meanings')) == len(qc.attrs.get('flag_masks'))
-        assert len(qc.attrs.get('flag_assessments')) == len(qc.attrs.get('flag_masks'))
+        assert qc.attrs['flag_masks'] == [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096]
+        assert qc.attrs['flag_meanings'] == act.transform.constants.QC_FLAG_MEANINGS
+        assert qc.attrs['flag_assessments'] == [
+            'Bad', 'Indeterminate', 'Indeterminate', 'Indeterminate',
+            'Indeterminate', 'Indeterminate', 'Indeterminate', 'Bad',
+            'Bad', 'Bad', 'Indeterminate', 'Bad', 'Indeterminate',
+        ]
+        assert qc.attrs['flag_comments'] == act.transform.constants.QC_FLAG_COMMENTS
 
     def test_missing_value_respected(self):
         da = _da([0.0, MISSING, 4.0], coord=np.array([0.0, 1.0, 2.0]))

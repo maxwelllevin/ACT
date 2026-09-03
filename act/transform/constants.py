@@ -5,10 +5,10 @@ QC flag bit constants shared by the ``act.transform`` kernels
 
 Each flag is a bit position in a packed integer QC field. Multiple flags
 can be set simultaneously via bitwise OR. ``QC_FLAG_MEANINGS`` and
-``QC_FLAG_ASSESSMENTS`` give the CF-style ``flag_meanings``/``flag_assessments``
-text for each flag, in the same order as ``QC_ALL_FLAGS``, so that output QC
-variables can be annotated the same way :func:`act.qc.qcfilter.QCFilter.add_test`
-annotates its QC variables.
+``QC_FLAG_ASSESSMENTS`` and ``QC_FLAG_COMMENTS`` give the ARM-style
+``flag_meanings``/``flag_assessments``/``flag_comments`` text for each flag, in
+the same order as ``QC_ALL_FLAGS``, so that output QC variables carry the same
+metadata as ARM transformation products.
 
 """
 
@@ -94,14 +94,14 @@ QC_FLAG_COMMENTS = [
 ]
 
 
-def add_cf_qc_attrs(qc_da):
-    """Populate CF-style QC attributes on a transform output QC DataArray.
+def add_arm_qc_attrs(qc_da):
+    """Populate ARM-style QC attributes on a transform output QC DataArray.
 
     Sets ``flag_masks``, ``flag_meanings``, ``flag_assessments``,
-    ``flag_comments``, and ``standard_name='quality_flag'`` on ``qc_da``
-    following the same
-    convention used by :meth:`act.qc.qcfilter.QCFilter.create_qc_variable`,
-    so that transform output composes cleanly with ``ds.qcfilter``/``ds.clean``.
+    ``flag_comments``, and ``standard_name='quality_flag'`` on ``qc_da`` using
+    the metadata convention emitted by ARM transformation products. The
+    resulting QC remains compatible with ACT's ``ds.qcfilter``/``ds.clean``
+    utilities.
 
     Parameters
     ----------

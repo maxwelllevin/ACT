@@ -12,7 +12,7 @@ import pandas as pd
 import xarray as xr
 
 from act.transform.bin_average import _bin_average_1d, bin_average
-from act.transform.constants import add_cf_qc_attrs
+from act.transform.constants import add_arm_qc_attrs
 from act.transform.interpolate import _bilinear_interpolate_1d, interpolate
 from act.transform.subsample import _subsample_1d, subsample
 
@@ -383,8 +383,9 @@ def apply_transform(
         Transformed DataArray on the target coordinate.
     result_qc : xarray.DataArray
         Integer QC DataArray with same shape as ``result``, annotated with
-        CF-style ``flag_masks``/``flag_meanings``/``flag_assessments`` and
-        ``standard_name='quality_flag'`` (see :func:`act.transform.constants.add_cf_qc_attrs`).
+        ARM-style ``flag_masks``/``flag_meanings``/``flag_assessments``/
+        ``flag_comments`` and ``standard_name='quality_flag'`` (see
+        :func:`act.transform.constants.add_arm_qc_attrs`).
 
     """
     if dim not in data.dims:
@@ -464,7 +465,7 @@ def apply_transform(
         coords=new_coords,
         name=qc_name,
     )
-    add_cf_qc_attrs(result_qc)
+    add_arm_qc_attrs(result_qc)
 
     return result, result_qc
 

@@ -5,9 +5,8 @@ Transforming a whole Dataset at once
 ``act.transform.transform_dataset`` applies a transform to every variable in a
 Dataset that has the target dimension, pairing each variable with its ``qc_``
 companion automatically and picking up the CF ``bounds`` variable for
-``bin_average``. Per-variable overrides let one call use different transforms
-for different kinds of variable, which is normally why you would reach for it
-instead of looping yourself.
+``bin_average``. Per-variable overrides are useful when variables in one
+Dataset require different transforms.
 
 """
 
@@ -57,19 +56,30 @@ masked = new_ds.qcfilter.get_masked_data('wspd_arith_mean', rm_assessments=['Bad
 print(f'Wind speed points masked by ds.qcfilter: {int(np.ma.getmaskarray(masked).sum())}')
 
 # Plot a few of the transformed variables together with the QC-driven mask.
+# The final subplot expands the output QC bitfield for the wind-speed result.
 plot_vars = ['temp_mean', 'rh_mean', 'wspd_arith_mean', 'pwd_pw_code_inst']
-fig, axes = plt.subplots(len(plot_vars), 1, figsize=(11, 10), sharex=True)
+display = act.plotting.TimeSeriesDisplay(
+    {'Input': ds, 'Transformed': new_ds},
+    figsize=(13.2, 12),
+    subplot_shape=(len(plot_vars) + 1,),
+)
 
-for ax, name in zip(axes, plot_vars):
-    ax.plot(ds['time'].values, ds[name].values, color='0.75', lw=0.7, label='Input')
-    ax.plot(
-        new_ds['time'].values,
-        new_ds[name].values,
-        color='tab:blue',
+for subplot_index, name in enumerate(plot_vars):
+    ax = display.axes[subplot_index]
+    display.plot(
+        name,
+        dsname='Input',
+        subplot_index=(subplot_index,),
+        label='Input',
+    )
+    display.plot(
+        name,
+        dsname='Transformed',
+        subplot_index=(subplot_index,),
+        label='Transformed',
         marker='o',
         ms=3.5,
         lw=1.3,
-        label='Transformed',
     )
     ax.set_ylabel(f'{name}\n({ds[name].attrs.get("units", "")})', fontsize=8)
     ax.grid(alpha=0.3)
@@ -92,12 +102,22 @@ for ax, name in zip(axes, plot_vars):
     ax.set_title(title, fontsize=9)
     ax.legend(loc='upper left', fontsize=7, ncol=3)
 
-axes[-1].set_xlabel('Time (UTC)')
-fig.suptitle(
+# The block plot shows which output QC assessments were raised for the wind
+# speed transform, including the threshold bits and any propagated input QC.
+new_ds['wspd_arith_mean'].attrs['ancillary_variables'] = 'qc_wspd_arith_mean'
+display.qc_flag_block_plot(
+    'wspd_arith_mean',
+    dsname='Transformed',
+    subplot_index=(len(plot_vars),),
+    ylabel='Output QC flags',
+)
+display.axes[-1].set_title('wspd_arith_mean -- propagated transform QC bits', fontsize=9)
+display.axes[-1].set_xlabel('Time (UTC)')
+display.fig.suptitle(
     'One transform_dataset call: per-variable transforms, automatic QC pairing',
     fontsize=11,
 )
-fig.tight_layout()
+display.fig.tight_layout()
 plt.show()
 
 ds.close()

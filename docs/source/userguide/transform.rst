@@ -24,9 +24,8 @@ Two things distinguish it from the resampling tools already in xarray:
 When to use this instead of xarray
 ==================================
 
-``xarray``'s own ``.resample()`` and ``.interp()`` are excellent, and for a quick look at
-data they are usually the right tool -- they are more flexible, better optimized, and far
-more widely understood. Reach for ``act.transform`` when one of the following is true:
+Use ``xarray``'s ``.resample()`` and ``.interp()`` for ordinary resampling and
+interpolation. Use ``act.transform`` when one of the following is true:
 
 * **You have a companion QC variable and the answer must respect it.** ``ds['temp'].resample(time='30min').mean()``
   averages every sample it is given. If a sensor reported an obviously wrong value and the
@@ -47,7 +46,7 @@ more widely understood. Reach for ``act.transform`` when one of the following is
   ``std_*`` and ``goodfrac_*`` thresholds flag output points whose input was more variable,
   or sparser, than you are willing to accept.
 
-If none of those apply, plain xarray is simpler and there is no reason to reach for this.
+If none of those apply, plain xarray is usually sufficient.
 
 
 Choosing a transform
@@ -274,7 +273,7 @@ ACT's existing QC machinery work on transform output without any translation ste
 
 ``qcfilter`` finds the QC variable through the data variable's ``ancillary_variables``
 attribute. ARM files already set it, and the transform copies the input's ``attrs``
-onto the output, so this normally works out of the box; if your input lacks the
+onto the output, so this normally works without extra setup; if your input lacks the
 attribute, set ``out_ds[var_name].attrs['ancillary_variables'] = filtered_qc.name``
 first. Note also that most transform bits are assessed ``Indeterminate`` rather than
 ``Bad``, so filtering only ``rm_assessments=['Bad']`` will not remove points flagged
@@ -347,7 +346,7 @@ Dataset that has ``dim``:
         ds, target=target, dim='time', transform='bin_average'
     )
 
-It does several things on your behalf:
+``transform_dataset`` handles QC pairing, bounds lookup, and pass-through variables:
 
 * **QC auto-pairing.** For each variable ``foo``, if ``qc_foo`` exists in the Dataset it is
   passed as that variable's ``qc`` automatically. The prefix is configurable with
@@ -361,8 +360,7 @@ It does several things on your behalf:
   Dataset's global ``attrs`` are preserved.
 
 Because one transform is rarely right for every variable in a file, per-variable
-overrides are supported. This is the usual reason to reach for ``transform_dataset``
-rather than looping yourself:
+overrides are supported:
 
 .. code-block:: python
 
@@ -389,10 +387,9 @@ base. The two arguments are mutually exclusive.
 Functions or accessor
 =====================
 
-Every transform is available two ways, and they are equivalent. The accessor takes
-variable *names* and looks them up in the Dataset; the functions take ``DataArray``
-objects directly. The accessor forwards straight to the functions, so neither is more
-capable than the other.
+Each transform has a function form and a Dataset-accessor form. Functions accept
+``DataArray`` objects; accessors accept variable names and delegate to the same
+implementation.
 
 .. code-block:: python
 
@@ -435,31 +432,26 @@ coordinate is a datetime:
         ds['temp_mean'], target, dim='time', t_range=np.timedelta64(5, 'm')
     )
 
-Numeric coordinates behave exactly as before; nothing about them changed.
+Numeric coordinates continue to use the same behavior.
 
 
 The numba dependency
 ====================
 
-The numeric kernels are JIT-compiled with `numba <https://numba.pydata.org/>`_. numba is a
-hard requirement in ``requirements.txt`` and ``environment.yml``, but ``act.transform``
-does not assume it works. If numba cannot be imported, cannot compile a kernel, or raises
-while running one, that kernel transparently falls back to a pure-Python implementation of
-the same logic (see ``act/transform/_numba_support.py``).
+The numeric kernels are JIT-compiled with `numba <https://numba.pydata.org/>`_. If numba
+cannot be imported, cannot compile a kernel, or raises an error while running a kernel,
+that kernel transparently falls back to a pure-Python implementation of the same logic
+(see ``act/transform/_numba_support.py``).
 
-**Results are numerically identical either way** -- the JIT path compiles the very same
-Python function that the fallback calls, so there are not two implementations to drift
-apart. The only difference is speed. When the fallback engages, a ``RuntimeWarning`` is
-emitted once per kernel naming the reason, so a slow run is never silent:
+The fallback uses the same Python kernel as the JIT path, so it preserves results but
+may run more slowly. When the fallback engages, a ``RuntimeWarning`` is emitted once per
+kernel naming the reason:
 
 .. code-block:: text
 
     RuntimeWarning: act.transform: numba JIT unavailable or failed for the
     'bin_average' kernel (...); falling back to a slower pure-Python
     implementation. Results are unaffected.
-
-If you see that warning, the answer is still correct. Fixing the numba installation will
-only make it faster.
 
 
 Further reading

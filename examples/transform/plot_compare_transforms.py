@@ -2,14 +2,9 @@
 Comparing bin_average, interpolate, and subsample
 -------------------------------------------------
 
-The three transforms answer different questions, and the right choice depends on
-what the variable means rather than on which is most accurate. This example runs
-all three onto one target time base using two variables that call for different
-answers: a continuous temperature and a discrete present-weather code.
-
-The target is deliberately offset 30 seconds from the input's 1-minute grid, so
-no output point coincides exactly with an input sample. That is the realistic
-case, and it is what exposes the difference between the three.
+This example compares the three transforms on temperature and a present-weather
+code. The target is offset by 30 seconds from the input timestamps, so no target
+point matches an input sample exactly.
 
 """
 
@@ -28,8 +23,7 @@ target = act.transform.make_coord(
 )
 window = slice('2023-03-01T09:00:00', '2023-03-01T21:00:00')
 
-# All three transforms take the same first three arguments and return the same
-# (result, result_qc) tuple, so they are interchangeable at the call site.
+# Apply each transform to the same target coordinate.
 transforms = ['bin_average', 'interpolate', 'subsample']
 colors = {'bin_average': 'tab:blue', 'interpolate': 'tab:green', 'subsample': 'tab:orange'}
 
@@ -61,7 +55,7 @@ for name in transforms:
     )
 
 ax0.set_ylabel(f'{var_name} ({ds[var_name].attrs["units"]})')
-ax0.set_title('A continuous quantity: all three are defensible, but they differ')
+ax0.set_title('A continuous quantity: the transforms produce different summaries')
 ax0.legend(loc='upper left', fontsize=8, ncol=2)
 ax0.grid(alpha=0.3)
 

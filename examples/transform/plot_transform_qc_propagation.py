@@ -2,153 +2,139 @@
 Propagating quality control through a resample
 ----------------------------------------------
 
-This example shows the behavior that distinguishes ``act.transform`` from a
-plain ``xarray`` resample: input quality control is honored, so flagged samples
-are excluded from the average, and output quality control is generated, so the
-result records which output points were affected.
+Shortwave irradiance should not be negative. This example uses a real ARM
+surface-radiation file in which the downwelling shortwave sensor reports small
+negative nighttime offsets. The datastream's ``fail_min`` QC test flags those
+samples as bad.
 
-The corrected tipping-bucket precipitation variable in this file contains
-7999 mm spikes that trip the datastream's own ``fail_max`` test. Averaging
-without consulting QC carries those spikes into the result.
+The flagged samples are excluded while the data are transformed to an hourly
+time base. The transformed output QC records which hourly bins lost some or
+all of their input. The all-missing interval around 02:30 UTC is intentional:
+every input contributing to that hourly bin failed the source QC test, so the
+transform marks it ``QC_ALL_BAD_INPUTS`` and leaves it missing. The three-panel
+figure shows the input flags, the cleaned transformed output, and the propagated
+output QC bitfield.
 
 """
 
 import matplotlib.pyplot as plt
 import numpy as np
+import xarray as xr
 from arm_test_data import DATASETS
 
 import act
-from act.transform.constants import QC_SOME_BAD_INPUTS
 
-filename = DATASETS.fetch('gucmetM1.b1.20230301.000000.cdf')
+filename = DATASETS.fetch('sgpsebsE39.b1.20230601.000000.cdf')
 ds = act.io.arm.read_arm_netcdf(filename, cleanup_qc=True)
 
-var_name = 'tbrg_precip_total_corr'
+var_name = 'down_short_hemisp'
 qc_var_name = 'qc_' + var_name
 
 # Build the qc_mask from the QC variable's own CF flag attributes rather than
-# hardcoding a bit value, so the same code works across datastreams. Here every
-# declared test is assessed "Bad".
+# hardcoding a bit value, so the same code works across datastreams.
 qc_da = ds[qc_var_name]
 qc_mask = 0
 for mask, assessment in zip(qc_da.attrs['flag_masks'], qc_da.attrs['flag_assessments']):
     if assessment == 'Bad':
-        qc_mask |= mask
+        qc_mask |= int(mask)
 
 print(f'flag_meanings: {qc_da.attrs["flag_meanings"]}')
 print(f'derived qc_mask = {qc_mask}')
 
-target = act.transform.make_coord('2023-03-01', '2023-03-02', '30min', name='time')
+# Use hourly centers at :30 so the output cells run from each hour to the next.
+target = act.transform.make_coord(
+    '2023-06-01T00:30', '2023-06-01T23:30', '1h', name='time'
+)
+half_hour = np.timedelta64(30, 'm')
+output_bounds = np.column_stack((target.values - half_hour, target.values + half_hour))
 
-# Without QC: every sample is averaged, spikes included.
-plain, plain_qc = act.transform.bin_average(ds[var_name], target, dim='time')
-
-# With QC: samples matching qc_mask are excluded from the computation, and the
-# output QC records which bins lost input.
+# Flagged samples are excluded, and the output QC records which bins lost
+# some or all of their input.
 filtered, filtered_qc = act.transform.bin_average(
-    ds[var_name], target, dim='time', qc=qc_da, qc_mask=qc_mask
+    ds[var_name],
+    target,
+    dim='time',
+    qc=qc_da,
+    qc_mask=qc_mask,
+    output_bounds=output_bounds,
 )
 
-print(f'\nInput maximum:            {float(ds[var_name].max()):.1f} mm')
-print(f'Output maximum without QC: {float(plain.max()):.1f} mm')
-print(f'Output maximum with QC:    {float(filtered.max()):.1f} mm')
-
-# Every sample that survives the QC mask is 0.0 mm, so the entire signal in the
-# unfiltered result was spurious.
-kept = ds[var_name].values[~(qc_da.values & qc_mask).astype(bool)]
-print(f'Range of the samples QC kept: {kept.min():.1f} to {kept.max():.1f} mm')
-
-some_bad = (filtered_qc.values & QC_SOME_BAD_INPUTS).astype(bool)
-print(f'\nBins flagged QC_SOME_BAD_INPUTS: {some_bad.sum()} of {filtered.size}')
-
-# Count how many input samples each output bin lost, which is what drives the
-# QC_SOME_BAD_INPUTS bit above.
 flagged_input = (qc_da.values & qc_mask).astype(bool)
-bin_edges = target.values
-lost_per_bin = np.array(
-    [
-        flagged_input[
-            (ds['time'].values >= bin_edges[i]) & (ds['time'].values < bin_edges[i + 1])
-        ].sum()
-        for i in range(len(bin_edges) - 1)
-    ]
+
+# Assemble the transformed data and QC, then run ACT's standard cleanup. The
+# transform uses -9999 as its output missing-value sentinel. cleanup() handles
+# the QC metadata; explicitly decoding that sentinel keeps it from skewing the
+# output plot while preserving the QC variable for the block plot.
+output_ds = xr.Dataset({filtered.name: filtered, filtered_qc.name: filtered_qc})
+output_ds[filtered.name].attrs['ancillary_variables'] = filtered_qc.name
+output_ds.clean.cleanup()
+output_ds[filtered.name] = output_ds[filtered.name].where(output_ds[filtered.name] != -9999)
+
+print(
+    f'\nInput range:              '
+    f'{float(np.nanmin(ds[var_name])):.1f} to {float(np.nanmax(ds[var_name])):.1f} W/m^2'
+)
+print(f'Bad output bins masked:   {int(np.isnan(output_ds[var_name]).sum())} of {filtered.size}')
+
+# Plot input values and bad input samples, transformed output, and propagated
+# transform QC in one shared figure.
+display = act.plotting.TimeSeriesDisplay(
+    {'Input': ds, 'Transformed': output_ds},
+    figsize=(14, 12),
+    subplot_shape=(3,),
 )
 
-fig, (ax0, ax1, ax2) = plt.subplots(
-    3, 1, figsize=(11, 9), sharex=True, gridspec_kw={'height_ratios': [2, 2, 1.4]}
-)
-
-# Panel 1: the flagged input. Plotted on a log scale because the spikes are four
-# orders of magnitude above the real signal.
-flagged = (ds[qc_var_name].values & qc_mask).astype(bool)
-ax0.plot(ds['time'].values, ds[var_name].values, color='0.6', lw=0.8, label='Input')
-ax0.plot(
-    ds['time'].values[flagged],
-    ds[var_name].values[flagged],
-    'rx',
-    ms=7,
-    label=f'Flagged by {qc_var_name} ({flagged.sum()} samples)',
-)
-ax0.set_yscale('symlog', linthresh=1)
-ax0.set_ylabel(f'{var_name}\n({ds[var_name].attrs["units"]})')
-ax0.set_title('Input: real ARM data with samples its own QC variable flags as bad')
-ax0.legend(loc='upper left', fontsize=8)
-ax0.grid(alpha=0.3)
-
-# Panel 2: the two results. Ignoring QC lets the spikes dominate.
-ax1.plot(
-    plain['time'].values,
-    plain.values,
-    color='tab:red',
+display.plot(
+    var_name,
+    dsname='Input',
+    subplot_index=(0,),
+    label='Input (30-minute)',
+    color='0.45',
     marker='o',
-    ms=4,
-    lw=1.5,
-    label='bin_average without QC (spikes averaged in)',
+    ms=3,
+    lw=1,
 )
-ax1.plot(
-    filtered['time'].values,
-    filtered.values,
+display.axes[0].plot(
+    ds['time'].values[flagged_input],
+    ds[var_name].values[flagged_input],
+    'rx',
+    ms=8,
+    mew=2,
+    label=f'Flagged by {qc_var_name} ({flagged_input.sum()} samples)',
+)
+display.axes[0].axhline(0, color='0.3', lw=0.8)
+display.axes[0].set_ylabel('Downwelling shortwave\n(W/m$^2$)')
+display.axes[0].set_title('Input: nighttime negative offsets flagged by the sensor QC')
+display.axes[0].legend(loc='upper left', fontsize=8)
+display.axes[0].grid(alpha=0.3)
+
+display.plot(
+    var_name,
+    dsname='Transformed',
+    subplot_index=(1,),
+    label='Hourly mean with QC',
     color='tab:blue',
     marker='o',
     ms=4,
     lw=1.5,
-    label='bin_average with qc_mask (spikes excluded)',
 )
-ax1.set_yscale('symlog', linthresh=0.1)
-ax1.set_ylabel(f'30-min mean\n({ds[var_name].attrs["units"]})')
-ax1.set_title('Output: the same transform, with and without the QC variable')
-ax1.legend(loc='upper left', fontsize=8)
-ax1.grid(alpha=0.3)
+display.axes[1].axhline(0, color='0.3', lw=0.8)
+display.axes[1].set_ylabel('Hourly mean\n(W/m$^2$)')
+display.axes[1].set_title('Output: bad input samples excluded and all-bad bins masked')
+display.axes[1].legend(loc='upper left', fontsize=8)
+display.axes[1].grid(alpha=0.3)
 
-# Panel 3: the generated output QC, so the propagation is visible. Bars show how
-# many input samples each bin lost; the markers show where the transform set
-# QC_SOME_BAD_INPUTS on its output. They line up exactly, which is the point.
-ax2.bar(
-    bin_edges[:-1],
-    lost_per_bin,
-    width=np.diff(bin_edges),
-    align='edge',
-    color='0.75',
-    edgecolor='0.5',
-    label='Input samples excluded by qc_mask',
+display.qc_flag_block_plot(
+    var_name,
+    dsname='Transformed',
+    subplot_index=(2,),
+    ylabel='Output QC flags',
 )
-marker_level = lost_per_bin.max() + 0.7
-ax2.plot(
-    filtered['time'].values[some_bad],
-    np.full(some_bad.sum(), marker_level),
-    's',
-    color='tab:orange',
-    ms=6,
-    label='Output bin flagged QC_SOME_BAD_INPUTS',
-)
-ax2.set_ylim(0, marker_level + 0.9)
-ax2.set_ylabel('Samples\nexcluded')
-ax2.set_xlabel('Time (UTC)')
-ax2.set_title('Generated output QC: excluded input per bin, and the resulting QC bit')
-ax2.legend(loc='upper left', fontsize=8)
-ax2.grid(alpha=0.3, axis='x')
+display.axes[2].set_title('Output: propagated transform QC bits')
+display.axes[2].set_xlabel('Time (UTC)')
+display.axes[2].grid(alpha=0.3, axis='y')
 
-fig.tight_layout()
+display.fig.tight_layout()
 plt.show()
 
 ds.close()

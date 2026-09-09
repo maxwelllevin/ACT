@@ -107,6 +107,48 @@ class TestBinAverage:
         result, _ = ds.transform.bin_average('temp', target, dim='time')
         np.testing.assert_allclose(result.values, expected.values)
 
+    def test_some_bad_inputs_excludes_all_bad_flag(self):
+        da = _da([1.0, 2.0], coord=np.array([0.0, 1.0]))
+        qc = xr.DataArray([act.transform.QC_BAD, 0], coords=da.coords, dims=da.dims)
+        target = xr.DataArray([0.0], dims=['time'])
+        bounds = np.array([[0.0, 2.0]])
+
+        _, result_qc = act.transform.bin_average(
+            da,
+            target,
+            dim='time',
+            qc=qc,
+            qc_mask=act.transform.QC_BAD,
+            input_bounds=np.array([[0.0, 1.0], [1.0, 2.0]]),
+            output_bounds=bounds,
+        )
+
+        assert result_qc.values[0] & act.transform.QC_SOME_BAD_INPUTS
+        assert not result_qc.values[0] & act.transform.QC_ALL_BAD_INPUTS
+
+    def test_all_bad_inputs_excludes_some_bad_flag(self):
+        da = _da([1.0, 2.0], coord=np.array([0.0, 1.0]))
+        qc = xr.DataArray(
+            [act.transform.QC_BAD, act.transform.QC_BAD],
+            coords=da.coords,
+            dims=da.dims,
+        )
+        target = xr.DataArray([0.0], dims=['time'])
+        bounds = np.array([[0.0, 2.0]])
+
+        _, result_qc = act.transform.bin_average(
+            da,
+            target,
+            dim='time',
+            qc=qc,
+            qc_mask=act.transform.QC_BAD,
+            input_bounds=np.array([[0.0, 1.0], [1.0, 2.0]]),
+            output_bounds=bounds,
+        )
+
+        assert result_qc.values[0] & act.transform.QC_ALL_BAD_INPUTS
+        assert not result_qc.values[0] & act.transform.QC_SOME_BAD_INPUTS
+
 
 class TestSubsample:
     def test_basic_1d(self):

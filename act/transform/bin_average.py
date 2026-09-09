@@ -65,6 +65,7 @@ def _bin_average_kernel_impl(
         sum_array2 = sum_weight2 = 0.0
         total_span = good_span = 0.0
         qco = 0
+        bad_input = False
         qc_output[j] = 0
         i = i0
 
@@ -108,7 +109,7 @@ def _bin_average_kernel_impl(
                 or (qc_array[i] & qc_mask)
                 or not np.isfinite(array[i])
             ):
-                qc_output[j] |= QC_SOME_BAD_INPUTS
+                bad_input = True
                 i += 1
                 continue
             else:
@@ -148,6 +149,8 @@ def _bin_average_kernel_impl(
             qc_output[j] |= QC_BAD
         else:
             output[j] = sum_array / sum_weight
+            if bad_input:
+                qc_output[j] |= QC_SOME_BAD_INPUTS
 
             # Weighted population variance: (s0*s2 - s1^2) / s0^2
             stdev[j] = sum_weight * sum_array2 - sum_array * sum_array

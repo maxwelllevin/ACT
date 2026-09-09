@@ -107,6 +107,74 @@ class TestBinAverage:
         result, _ = ds.transform.bin_average('temp', target, dim='time')
         np.testing.assert_allclose(result.values, expected.values)
 
+    def test_qc_mask_assessment_and_default(self):
+        da = _da([1.0, 2.0], coord=np.array([0.0, 1.0]))
+        qc = xr.DataArray([1, 2], coords=da.coords, dims=da.dims)
+        qc.attrs['flag_masks'] = [1, 2]
+        qc.attrs['flag_assessments'] = ['Bad', 'Indeterminate']
+        target = xr.DataArray([0.0], dims=['time'])
+        bounds = np.array([[0.0, 2.0]])
+        input_bounds = np.array([[0.0, 1.0], [1.0, 2.0]])
+
+        _, default_qc = act.transform.bin_average(
+            da, target, dim='time', qc=qc, input_bounds=input_bounds, output_bounds=bounds
+        )
+        _, bad_qc = act.transform.bin_average(
+            da,
+            target,
+            dim='time',
+            qc=qc,
+            qc_mask='Bad',
+            input_bounds=input_bounds,
+            output_bounds=bounds,
+        )
+        _, indeterminate_qc = act.transform.bin_average(
+            da,
+            target,
+            dim='time',
+            qc=qc,
+            qc_mask='Indeterminate',
+            input_bounds=input_bounds,
+            output_bounds=bounds,
+        )
+
+        np.testing.assert_array_equal(default_qc.values, bad_qc.values)
+        assert bad_qc.values[0] & act.transform.QC_SOME_BAD_INPUTS
+        assert indeterminate_qc.values[0] & act.transform.QC_SOME_BAD_INPUTS
+
+    def test_unknown_qc_assessment_raises(self):
+        da = _da([1.0, 2.0])
+        qc = xr.DataArray([0, 0], coords=da.coords, dims=da.dims)
+        qc.attrs['flag_masks'] = [1]
+        qc.attrs['flag_assessments'] = ['Bad']
+        with pytest.raises(ValueError, match='not found'):
+            act.transform.bin_average(da, [0.5], dim='time', qc=qc, qc_mask='Suspect')
+
+    def test_multiple_qc_assessments_are_combined(self):
+        da = _da([1.0, 2.0, 3.0], coord=np.array([0.0, 1.0, 2.0]))
+        qc = xr.DataArray([1, 2, 4], coords=da.coords, dims=da.dims)
+        qc.attrs['flag_masks'] = [1, 2, 4]
+        qc.attrs['flag_assessments'] = ['Bad', 'Suspect', 'Indeterminate']
+        target = xr.DataArray([1.0], dims=['time'])
+        result, _ = act.transform.bin_average(
+            da,
+            target,
+            dim='time',
+            qc=qc,
+            qc_mask=['Bad', 'Suspect'],
+            input_bounds=np.array([[-0.5, 0.5], [0.5, 1.5], [1.5, 2.5]]),
+            output_bounds=np.array([[0.0, 2.0]]),
+        )
+        assert result.values[0] == pytest.approx(3.0)
+
+    def test_invalid_qc_assessment_list_raises(self):
+        da = _da([1.0, 2.0])
+        qc = xr.DataArray([0, 0], coords=da.coords, dims=da.dims)
+        qc.attrs['flag_masks'] = [1]
+        qc.attrs['flag_assessments'] = ['Bad']
+        with pytest.raises(TypeError, match='assessment string'):
+            act.transform.bin_average(da, [0.5], dim='time', qc=qc, qc_mask=['Bad', 1])
+
     def test_some_bad_inputs_excludes_all_bad_flag(self):
         da = _da([1.0, 2.0], coord=np.array([0.0, 1.0]))
         qc = xr.DataArray([act.transform.QC_BAD, 0], coords=da.coords, dims=da.dims)

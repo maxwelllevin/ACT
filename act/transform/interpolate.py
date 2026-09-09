@@ -258,7 +258,7 @@ def _bilinear_interpolate_1d(
     )
 
 
-def interpolate(data, target, dim, qc=None, qc_mask=0, t_range=None):
+def interpolate(data, target, dim, qc=None, qc_mask=None, t_range=None):
     """Bilinearly interpolate ``data`` onto ``target`` coordinate values along ``dim``.
 
     Parameters
@@ -271,8 +271,11 @@ def interpolate(data, target, dim, qc=None, qc_mask=0, t_range=None):
         Name of the dimension along which to apply the transform.
     qc : xarray.DataArray, optional
         Optional integer QC DataArray with same shape as ``data``.
-    qc_mask : int
-        Bitmask of QC bits that indicate bad data.
+    qc_mask : int, str, list[str], or None
+        Integer bitmask, QC assessment name, or None. An assessment name is
+        matched against ``qc.attrs['flag_assessments']``; None selects
+        ``"Bad"`` when QC metadata is available and otherwise excludes no QC
+        bits.
     t_range : float or numpy.timedelta64, optional
         Maximum distance from a target point to an input point for interpolation.
         May be given as a timedelta when ``dim`` is a datetime coordinate.

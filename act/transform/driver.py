@@ -19,7 +19,69 @@ from act.transform.subsample import _subsample_1d, subsample
 TRANSFORM_NAMES = ('bin_average', 'interpolate', 'subsample')
 
 DEFAULT_MISSING = -9999.0
-DEFAULT_QC_MASK = 0
+
+
+def _resolve_qc_mask(qc, qc_mask):
+    """Resolve an integer QC mask from bitmasks or flag assessments.
+
+    ``None`` selects the ``Bad`` assessment when QC metadata is available and
+    otherwise means that no QC bits are excluded. Integer masks are returned
+    unchanged. A string or list of strings is matched against the QC variable's
+    ``flag_assessments`` metadata and the corresponding ``flag_masks`` are ORed
+    together.
+    """
+    if qc_mask is None:
+        assessments = ['Bad']
+    elif isinstance(qc_mask, str):
+        assessments = [qc_mask]
+    elif isinstance(qc_mask, (list, tuple)):
+        if not qc_mask or not all(isinstance(item, str) for item in qc_mask):
+            raise TypeError("qc_mask lists must contain at least one assessment string")
+        assessments = list(qc_mask)
+    elif isinstance(qc_mask, (int, np.integer)) and not isinstance(qc_mask, bool):
+        return int(qc_mask)
+    else:
+        raise TypeError(
+            "qc_mask must be an integer, assessment string, list of assessment strings, or None"
+        )
+
+    if qc is None:
+        if qc_mask is None:
+            return 0
+        raise ValueError(
+            f"Cannot resolve QC assessment(s) {assessments!r} without a QC DataArray"
+        )
+
+    # A QC array without CF assessment metadata cannot resolve the implicit
+    # default, so retain the historical no-mask behavior for qc_mask=None.
+    if qc_mask is None and 'flag_masks' not in qc.attrs:
+        return 0
+
+    try:
+        flag_masks = qc.attrs['flag_masks']
+        flag_assessments = qc.attrs['flag_assessments']
+    except KeyError as exc:
+        raise ValueError(
+            "QC assessment masks require 'flag_masks' and 'flag_assessments' metadata"
+        ) from exc
+
+    if len(flag_masks) != len(flag_assessments):
+        raise ValueError("QC flag_masks and flag_assessments must have the same length")
+
+    mask = 0
+    matched = set()
+    for flag_mask, flag_assessment in zip(flag_masks, flag_assessments):
+        assessment = str(flag_assessment)
+        if assessment in assessments:
+            mask |= int(flag_mask)
+            matched.add(assessment)
+
+    missing = [assessment for assessment in assessments if assessment not in matched]
+    if missing:
+        raise ValueError(
+            f"QC assessment(s) {missing!r} were not found in flag_assessments"
+        )
+    return mask
 
 
 def _infer_t_range(index):
@@ -120,8 +182,10 @@ def transform_1d(
     qc_data : numpy.ndarray or None
         Integer QC array with same shape as ``data``, or None (treated as
         all-zero / no QC).
-    qc_mask : int
-        Bitmask; bits set here are treated as "bad" in QC checks.
+    qc_mask : int, str, list[str], or None
+        Bitmask, assessment name, or None. An assessment name is matched
+        against ``qc_data`` metadata; None selects ``"Bad"`` when QC metadata
+        is available and otherwise excludes no QC bits.
     input_coord : numpy.ndarray
         1-D coordinate values for the transform dimension (length == ``data.shape[axis]``).
     output_coord : numpy.ndarray
@@ -350,7 +414,7 @@ def apply_transform(
     dim,
     transform,
     qc=None,
-    qc_mask=0,
+    qc_mask=None,
     **kwargs,
 ):
     """Apply a 1D transform kernel to an :class:`xarray.DataArray` along ``dim``.
@@ -372,8 +436,11 @@ def apply_transform(
         Which transform kernel to apply.
     qc : xarray.DataArray, optional
         Optional integer QC DataArray with same shape as ``data``.
-    qc_mask : int
-        Bitmask of QC bits that indicate bad data.
+    qc_mask : int, str, list[str], or None
+        Integer bitmask, QC assessment name, or None. An assessment name is
+        matched against ``qc.attrs['flag_assessments']``; None selects
+        ``"Bad"`` when QC metadata is available and otherwise excludes no QC
+        bits.
     **kwargs
         Additional keyword arguments forwarded to :func:`transform_1d`.
 
@@ -421,11 +488,12 @@ def apply_transform(
     missing = _get_missing_value(data)
 
     qc_arr = qc.values if qc is not None else None
+    resolved_qc_mask = _resolve_qc_mask(qc, qc_mask)
 
     out_data, out_qc_arr = transform_1d(
         data=data.values,
         qc_data=qc_arr,
-        qc_mask=qc_mask,
+        qc_mask=resolved_qc_mask,
         input_coord=input_coord,
         output_coord=output_coord,
         transform=transform,
@@ -566,7 +634,7 @@ def transform_dataset(
     dim=None,
     transform=None,
     qc_prefix='qc_',
-    qc_mask=0,
+    qc_mask=None,
     target_ds=None,
     per_var_transform=None,
     per_var_kwargs=None,
@@ -589,8 +657,11 @@ def transform_dataset(
         Default transform to apply to every matching variable.
     qc_prefix : str
         Prefix used to find companion QC variables (default ``"qc_"``).
-    qc_mask : int
-        Bitmask of QC bits that indicate bad data.
+    qc_mask : int, str, list[str], or None
+        Integer bitmask, QC assessment name, or None. An assessment name is
+        matched against each QC companion's ``flag_assessments`` metadata;
+        None selects ``"Bad"`` when metadata is available and otherwise
+        excludes no QC bits.
     target_ds : xarray.Dataset, optional
         Source dataset containing the target coordinate.
     per_var_transform : dict, optional
@@ -800,17 +871,17 @@ class Transform:
     def __init__(self, ds):
         self._ds = ds
 
-    def bin_average(self, var_name, target, dim, qc_var_name=None, qc_mask=0, **kwargs):
+    def bin_average(self, var_name, target, dim, qc_var_name=None, qc_mask=None, **kwargs):
         """Bin-average ``self._ds[var_name]`` onto ``target``. See :func:`act.transform.bin_average`."""
         qc = self._ds[qc_var_name] if qc_var_name is not None else None
         return bin_average(self._ds[var_name], target, dim, qc=qc, qc_mask=qc_mask, **kwargs)
 
-    def interpolate(self, var_name, target, dim, qc_var_name=None, qc_mask=0, **kwargs):
+    def interpolate(self, var_name, target, dim, qc_var_name=None, qc_mask=None, **kwargs):
         """Interpolate ``self._ds[var_name]`` onto ``target``. See :func:`act.transform.interpolate`."""
         qc = self._ds[qc_var_name] if qc_var_name is not None else None
         return interpolate(self._ds[var_name], target, dim, qc=qc, qc_mask=qc_mask, **kwargs)
 
-    def subsample(self, var_name, target, dim, qc_var_name=None, qc_mask=0, **kwargs):
+    def subsample(self, var_name, target, dim, qc_var_name=None, qc_mask=None, **kwargs):
         """Subsample ``self._ds[var_name]`` onto ``target``. See :func:`act.transform.subsample`."""
         qc = self._ds[qc_var_name] if qc_var_name is not None else None
         return subsample(self._ds[var_name], target, dim, qc=qc, qc_mask=qc_mask, **kwargs)

@@ -292,7 +292,7 @@ def bin_average(
     target,
     dim,
     qc=None,
-    qc_mask=0,
+    qc_mask=None,
     input_bounds=None,
     output_bounds=None,
     weights=None,
@@ -313,8 +313,11 @@ def bin_average(
         Name of the dimension along which to apply the transform.
     qc : xarray.DataArray, optional
         Optional integer QC DataArray with same shape as ``data``.
-    qc_mask : int
-        Bitmask of QC bits that indicate bad data.
+    qc_mask : int, str, list[str], or None
+        Integer bitmask, QC assessment name, or None. An assessment name is
+        matched against ``qc.attrs['flag_assessments']``; None selects
+        ``"Bad"`` when QC metadata is available and otherwise excludes no QC
+        bits.
     input_bounds : numpy.ndarray, optional
         Shape ``(ni, 2)`` array of [start, end] bounds for each input bin.
         Inferred from midpoints if None.

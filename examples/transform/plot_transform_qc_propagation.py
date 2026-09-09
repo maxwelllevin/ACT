@@ -30,16 +30,13 @@ ds = act.io.arm.read_arm_netcdf(filename, cleanup_qc=True)
 var_name = 'down_short_hemisp'
 qc_var_name = 'qc_' + var_name
 
-# Build the qc_mask from the QC variable's own CF flag attributes rather than
-# hardcoding a bit value, so the same code works across datastreams.
+# Pass the QC assessment to exclude; bin_average resolves the matching bitmask
+# from the QC variable's CF flag metadata.
 qc_da = ds[qc_var_name]
-qc_mask = 0
-for mask, assessment in zip(qc_da.attrs['flag_masks'], qc_da.attrs['flag_assessments']):
-    if assessment == 'Bad':
-        qc_mask |= int(mask)
+qc_mask = 'Bad'
 
 print(f'flag_meanings: {qc_da.attrs["flag_meanings"]}')
-print(f'derived qc_mask = {qc_mask}')
+print(f'qc assessment excluded = {qc_mask}')
 
 # Use hourly centers at :30 so the output cells run from each hour to the next.
 target = act.transform.make_coord(
@@ -59,7 +56,14 @@ filtered, filtered_qc = act.transform.bin_average(
     output_bounds=output_bounds,
 )
 
-flagged_input = (qc_da.values & qc_mask).astype(bool)
+bad_masks = [
+    int(mask)
+    for mask, assessment in zip(qc_da.attrs['flag_masks'], qc_da.attrs['flag_assessments'])
+    if assessment == qc_mask
+]
+flagged_input = np.zeros(qc_da.shape, dtype=bool)
+for mask in bad_masks:
+    flagged_input |= (qc_da.values & mask).astype(bool)
 
 # Assemble the transformed data and QC, then run ACT's standard cleanup. The
 # transform uses -9999 as its output missing-value sentinel. cleanup() handles

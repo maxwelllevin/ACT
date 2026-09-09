@@ -1,6 +1,6 @@
-==========================================
-Transforming data onto a new coordinate
-==========================================
+===============
+Transforming Data
+===============
 
 The ``act.transform`` subpackage moves data from one coordinate grid onto another --
 most often resampling a datastream onto a different time base -- while carrying
@@ -123,43 +123,51 @@ Quality control, end to end
 Passing input QC
 ----------------
 
-Pass the companion QC variable as ``qc`` and use ``qc_mask`` to say which of its bits
-mean "bad". ``qc_mask`` is a bitmask, not a bit number: bit 3 is ``1 << 2``, i.e. ``4``.
-Samples matching the mask are excluded from the computation entirely.
-
-For the ``gucmetM1.b1`` file above, ``qc_tbrg_precip_total_corr`` bit 3 is the
-``fail_max`` test, and the raw data contains 7999 mm spikes that trip it:
+Pass the companion QC variable as ``qc``. By default, ``qc_mask=None`` selects every
+QC bit whose ``flag_assessments`` metadata is ``"Bad"``; samples matching those bits
+are excluded from the computation. This assessment-aware default is preferred over
+hardcoding a datastream-specific bit value:
 
 .. code-block:: python
 
     var_name = 'tbrg_precip_total_corr'
 
-    # Without QC, the spikes are averaged in.
-    plain, _ = act.transform.bin_average(ds[var_name], target, dim='time')
-
-    # With QC, they are excluded.
     filtered, filtered_qc = act.transform.bin_average(
-        ds[var_name], target, dim='time', qc=ds['qc_' + var_name], qc_mask=4
+        ds[var_name], target, dim='time', qc=ds['qc_' + var_name]
     )
 
-    print(float(plain.max()))     # 799.9  -- the spike survives
-    print(float(filtered.max()))  # 0.0    -- the spike is gone
-
-Rather than hardcoding ``4``, you can look the bit up from the cleaned QC variable's
-``flag_masks``/``flag_meanings`` attributes, which is more robust across datastreams:
+For the ``gucmetM1.b1`` file above, this excludes the ``fail_max`` QC test that flags
+the raw data's 7999 mm spikes. You can choose a different assessment by passing its
+name as ``qc_mask``:
 
 .. code-block:: python
 
-    qc_da = ds['qc_' + var_name]
-    masks = qc_da.attrs['flag_masks']
-    meanings = qc_da.attrs['flag_meanings']
-    assessments = qc_da.attrs['flag_assessments']
+    # Exclude every input assessed as Indeterminate instead.
+    filtered, filtered_qc = act.transform.bin_average(
+        ds[var_name],
+        target,
+        dim='time',
+        qc=ds['qc_' + var_name],
+        qc_mask='Indeterminate',
+    )
 
-    # Every bit whose assessment is "Bad", OR-ed into one mask.
-    qc_mask = 0
-    for mask, assessment in zip(masks, assessments):
-        if assessment == 'Bad':
-            qc_mask |= mask
+The three supported forms are:
+
+* ``None`` (the default): derive a mask for ``"Bad"`` from the QC variable's
+  ``flag_assessments`` and ``flag_masks`` metadata. If no QC variable is supplied,
+  no QC bits are excluded.
+* A string such as ``'Bad'`` or ``'Indeterminate'``: derive a mask for that exact
+  assessment from the QC metadata. An explicit assessment string requires a QC
+  variable with both metadata attributes.
+* A list of strings such as ``['Bad', 'Suspect']``: combine the masks for all listed
+  assessments. This is useful when several assessment categories should be excluded.
+* An integer such as ``4``: use that bitmask directly. This is useful when working
+  with a non-CF QC array or when an exact bit-level selection is required. Remember
+  that ``qc_mask`` is a bitmask, not a bit number: bit 3 is ``1 << 2``, or ``4``.
+
+The same ``qc_mask`` options apply to ``interpolate``, ``subsample``,
+``transform_dataset``, and the Dataset accessor methods. The transform's output QC
+still records any input QC bits that were not selected for exclusion.
 
 Reading the output QC
 ---------------------
@@ -209,8 +217,7 @@ The full set of bits, and which transforms can set them:
    * - ``QC_SOME_BAD_INPUTS``
      - 32
      - Indeterminate
-     - ``bin_average`` excluded at least one sample from this bin. If *every* sample was
-       excluded, ``QC_ALL_BAD_INPUTS`` is set as well, so check that bit first.
+     - ``bin_average`` excluded some, but not all, candidate samples from this bin.
    * - ``QC_ZERO_WEIGHT``
      - 64
      - Indeterminate
@@ -337,7 +344,7 @@ Dataset that has ``dim``:
 .. code-block:: python
 
     new_ds = act.transform.transform_dataset(
-        ds, target=target, dim='time', transform='bin_average', qc_mask=4
+        ds, target=target, dim='time', transform='bin_average'
     )
 
 It does several things on your behalf:
@@ -364,7 +371,7 @@ rather than looping yourself:
         target=target,
         dim='time',
         transform='bin_average',          # default for most variables
-        qc_mask=4,
+        # qc_mask=None (the default) excludes QC bits assessed as Bad.
         per_var_transform={
             # Averaging a present-weather code is meaningless; take a real sample.
             'pwd_pw_code_inst': 'subsample',
@@ -391,12 +398,12 @@ capable than the other.
 
     # Function form -- takes DataArrays.
     result, result_qc = act.transform.bin_average(
-        ds['temp_mean'], target, dim='time', qc=ds['qc_temp_mean'], qc_mask=4
+        ds['temp_mean'], target, dim='time', qc=ds['qc_temp_mean']
     )
 
     # Accessor form -- takes names. Identical result.
     result, result_qc = ds.transform.bin_average(
-        'temp_mean', target, dim='time', qc_var_name='qc_temp_mean', qc_mask=4
+        'temp_mean', target, dim='time', qc_var_name='qc_temp_mean'
     )
 
 Note the argument name changes with the form: the functions take ``qc=<DataArray>``,

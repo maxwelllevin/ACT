@@ -407,9 +407,6 @@ Note the argument name changes with the form: the functions take ``qc=<DataArray
 while the accessor takes ``qc_var_name=<str>``. ``ds.transform.transform_dataset(...)``
 works the same way, taking every argument except ``ds`` itself.
 
-Prefer the accessor when working from a Dataset read off disk, and the functions when you
-are holding ``DataArray`` objects you built or modified yourself.
-
 
 Datetime coordinates
 ====================
@@ -440,12 +437,8 @@ The numba dependency
 
 The numeric kernels are JIT-compiled with `numba <https://numba.pydata.org/>`_. If numba
 cannot be imported, cannot compile a kernel, or raises an error while running a kernel,
-that kernel transparently falls back to a pure-Python implementation of the same logic
-(see ``act/transform/_numba_support.py``).
-
-The fallback uses the same Python kernel as the JIT path, so it preserves results but
-may run more slowly. When the fallback engages, a ``RuntimeWarning`` is emitted once per
-kernel naming the reason:
+that kernel falls back to a pure-Python implementation of the same logic
+(see ``act/transform/_numba_support.py``) and emits a ``RuntimeWarning`` once for each failing kernel type, naming the reason:
 
 .. code-block:: text
 
@@ -453,6 +446,8 @@ kernel naming the reason:
     'bin_average' kernel (...); falling back to a slower pure-Python
     implementation. Results are unaffected.
 
+The fallback uses the same Python kernel as the JIT path, so it preserves results but
+may run more slowly.
 
 Further reading
 ===============

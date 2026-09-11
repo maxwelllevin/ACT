@@ -39,9 +39,7 @@ print(f'flag_meanings: {qc_da.attrs["flag_meanings"]}')
 print(f'qc assessment excluded = {qc_mask}')
 
 # Use hourly centers at :30 so the output cells run from each hour to the next.
-target = act.transform.make_coord(
-    '2023-06-01T00:30', '2023-06-01T23:30', '1h', name='time'
-)
+target = act.transform.make_coord('2023-06-01T00:30', '2023-06-01T23:30', '1h', name='time')
 half_hour = np.timedelta64(30, 'm')
 output_bounds = np.column_stack((target.values - half_hour, target.values + half_hour))
 

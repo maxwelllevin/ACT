@@ -48,9 +48,7 @@ def _resolve_qc_mask(qc, qc_mask):
     if qc is None:
         if qc_mask is None:
             return 0
-        raise ValueError(
-            f"Cannot resolve QC assessment(s) {assessments!r} without a QC DataArray"
-        )
+        raise ValueError(f"Cannot resolve QC assessment(s) {assessments!r} without a QC DataArray")
 
     # A QC array without CF assessment metadata cannot resolve the implicit
     # default, so retain the historical no-mask behavior for qc_mask=None.
@@ -78,9 +76,7 @@ def _resolve_qc_mask(qc, qc_mask):
 
     missing = [assessment for assessment in assessments if assessment not in matched]
     if missing:
-        raise ValueError(
-            f"QC assessment(s) {missing!r} were not found in flag_assessments"
-        )
+        raise ValueError(f"QC assessment(s) {missing!r} were not found in flag_assessments")
     return mask
 
 

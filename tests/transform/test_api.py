@@ -43,9 +43,19 @@ class TestInterpolate:
         assert qc.attrs['flag_masks'] == [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096]
         assert qc.attrs['flag_meanings'] == act.transform.constants.QC_FLAG_MEANINGS
         assert qc.attrs['flag_assessments'] == [
-            'Bad', 'Indeterminate', 'Indeterminate', 'Indeterminate',
-            'Indeterminate', 'Indeterminate', 'Indeterminate', 'Bad',
-            'Bad', 'Bad', 'Indeterminate', 'Bad', 'Indeterminate',
+            'Bad',
+            'Indeterminate',
+            'Indeterminate',
+            'Indeterminate',
+            'Indeterminate',
+            'Indeterminate',
+            'Indeterminate',
+            'Bad',
+            'Bad',
+            'Bad',
+            'Indeterminate',
+            'Bad',
+            'Indeterminate',
         ]
         assert qc.attrs['flag_comments'] == act.transform.constants.QC_FLAG_COMMENTS
 
